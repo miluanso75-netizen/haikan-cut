@@ -211,8 +211,9 @@
   <h1>配管切り寸法計算</h1>
 
   <div class="tabs">
-    <button class="tab active" onclick="setMode('straight')">直線配管（90°系）</button>
-    <button class="tab" onclick="setMode('offset45')">45°オフセット</button>
+    <button class="tab active" onclick="setMode('straight')">90°直</button>
+    <button class="tab" onclick="setMode('offset45')">45°オフセ</button>
+    <button class="tab" onclick="setMode('loffset')">L+オフセ</button>
   </div>
 
   <!-- 図 -->
@@ -228,21 +229,45 @@
       <label class="main-label" for="pipeSize">口径</label>
       <select id="pipeSize" onchange="onSizeChange()"></select>
     </div>
-    <div class="form-row">
-      <label class="main-label" for="centerDist">
-        <span class="color-dot dot-c"></span>芯々 C
-        <span class="sub">メインの距離</span>
-      </label>
-      <input type="number" id="centerDist" inputmode="numeric" pattern="[0-9]*" placeholder="0" oninput="calculate()">
-      <span class="unit">mm</span>
+
+    <!-- 通常モード用入力 (90°直 / 45°オフセ) -->
+    <div id="inputsSimple">
+      <div class="form-row">
+        <label class="main-label" for="centerDist">
+          <span class="color-dot dot-c"></span>芯々 C
+          <span class="sub">メインの距離</span>
+        </label>
+        <input type="number" id="centerDist" inputmode="numeric" pattern="[0-9]*" placeholder="0" oninput="calculate()">
+        <span class="unit">mm</span>
+      </div>
+      <div class="form-row">
+        <label class="main-label" for="twist">
+          <span class="color-dot dot-t"></span>捻り T
+          <span class="sub">前後のズレ（任意）</span>
+        </label>
+        <input type="number" id="twist" inputmode="numeric" pattern="[0-9]*" placeholder="0" oninput="calculate()">
+        <span class="unit">mm</span>
+      </div>
     </div>
-    <div class="form-row">
-      <label class="main-label" for="twist">
-        <span class="color-dot dot-t"></span>捻り T
-        <span class="sub">前後のズレ（任意）</span>
-      </label>
-      <input type="number" id="twist" inputmode="numeric" pattern="[0-9]*" placeholder="0" oninput="calculate()">
-      <span class="unit">mm</span>
+
+    <!-- L+オフセットモード用入力 -->
+    <div id="inputsLOffset" style="display:none;">
+      <div class="form-row">
+        <label class="main-label" for="lCenter">
+          <span class="color-dot dot-c"></span>芯々 C
+          <span class="sub">オフセット量</span>
+        </label>
+        <input type="number" id="lCenter" inputmode="numeric" pattern="[0-9]*" placeholder="0" oninput="calculate()">
+        <span class="unit">mm</span>
+      </div>
+      <div class="form-row">
+        <label class="main-label" for="lTwist">
+          <span class="color-dot dot-t"></span>捻り T
+          <span class="sub">前後のズレ（任意）</span>
+        </label>
+        <input type="number" id="lTwist" inputmode="numeric" pattern="[0-9]*" placeholder="0" oninput="calculate()">
+        <span class="unit">mm</span>
+      </div>
     </div>
   </div>
 
@@ -279,12 +304,24 @@
     展開寸法 (×√2): <span class="val" id="developVal">0</span> mm
   </div>
 
-  <!-- 結果 -->
+  <!-- 結果（通常モード） -->
   <div class="result-card" id="resultCard">
     <div class="result-label">切り寸法</div>
     <div class="result-value" id="resultValue">---<span class="unit-label">mm</span></div>
   </div>
   <div class="detail" id="detail"></div>
+
+  <!-- 結果（L+オフセットモード） -->
+  <div id="resultMulti" style="display:none;">
+    <div class="info-row orange" id="lDevelopInfo">
+      展開寸法 (×√2): <span class="val" id="lDevelopVal">0</span> mm
+    </div>
+    <div class="result-card" id="lResultCard">
+      <div class="result-label">切り寸法（斜めパイプ）</div>
+      <div class="result-value" id="lResultValue">---<span class="unit-label">mm</span></div>
+    </div>
+    <div class="detail" id="lDetail"></div>
+  </div>
 
   <button class="toggle-btn" onclick="toggleTable()">
     G寸法一覧表 <span id="toggleArrow">&#9660;</span>
@@ -334,8 +371,22 @@ let currentMode = 'straight';
 function setMode(mode) {
   currentMode = mode;
   document.querySelectorAll('.tab').forEach((t, i) => {
-    t.classList.toggle('active', (i===0 && mode==='straight') || (i===1 && mode==='offset45'));
+    t.classList.toggle('active',
+      (i===0 && mode==='straight') ||
+      (i===1 && mode==='offset45') ||
+      (i===2 && mode==='loffset'));
   });
+
+  // 入力欄の切り替え
+  const isL = mode === 'loffset';
+  document.getElementById('inputsSimple').style.display = isL ? 'none' : '';
+  document.getElementById('inputsLOffset').style.display = isL ? '' : 'none';
+
+  // 結果カードの切り替え
+  document.getElementById('resultCard').style.display = isL ? 'none' : '';
+  document.getElementById('detail').style.display = isL ? 'none' : '';
+  document.getElementById('resultMulti').style.display = isL ? '' : 'none';
+
   calculate();
 }
 
@@ -572,6 +623,16 @@ function getG(side) {
 // ===== 計算 =====
 function calculate() {
   const size = document.getElementById('pipeSize').value;
+  const gA = getG('A');
+  const gB = getG('B');
+
+  updateTableHighlight(size);
+
+  if (currentMode === 'loffset') {
+    calculateLOffset(size, gA, gB);
+    return;
+  }
+
   const center = parseFloat(document.getElementById('centerDist').value) || 0;
   const tw = parseFloat(document.getElementById('twist').value) || 0;
 
@@ -580,11 +641,6 @@ function calculate() {
   const detail = document.getElementById('detail');
   const twistInfo = document.getElementById('twistInfo');
   const developInfo = document.getElementById('developInfo');
-
-  const gA = getG('A');
-  const gB = getG('B');
-
-  updateTableHighlight(size);
 
   if (center <= 0) {
     resultValue.innerHTML = '---<span class="unit-label">mm</span>';
@@ -653,6 +709,118 @@ function calculate() {
   detail.innerHTML = formula;
 
   drawDiagram(center, tw, cutting, gA, gB, currentMode);
+}
+
+// ===== L+オフセット計算（エル + 45エルの斜めパイプ1本） =====
+function calculateLOffset(size, gA, gB) {
+  const d = DIM[size];
+  const G = d.G;
+  const center = parseFloat(document.getElementById('lCenter').value) || 0;
+  const tw = parseFloat(document.getElementById('lTwist').value) || 0;
+
+  const resultValue = document.getElementById('lResultValue');
+  const resultCard = document.getElementById('lResultCard');
+  const detail = document.getElementById('lDetail');
+  const developInfo = document.getElementById('lDevelopInfo');
+  const developVal = document.getElementById('lDevelopVal');
+
+  if (center <= 0) {
+    resultValue.innerHTML = '---<span class="unit-label">mm</span>';
+    resultCard.classList.remove('error');
+    detail.innerHTML = '';
+    developInfo.style.display = 'none';
+    drawDiagramL(0, 0, 0, gA, gB, G);
+    return;
+  }
+
+  // 三平方（捻りがあれば）
+  const hasTwist = tw > 0;
+  const baseDist = hasTwist ? Math.sqrt(center*center + tw*tw) : center;
+
+  // 展開寸法 = 芯々 × √2
+  const develop = Math.round(baseDist * Math.SQRT2);
+  developVal.textContent = develop;
+  developInfo.style.display = 'block';
+
+  // 片方にエル(90°)のG、片方に45エルのG ＝ 同口径ならG同じ
+  // 異径があればgA/gBが変わる
+  const cutting = develop - gA - gB;
+
+  if (cutting <= 0) {
+    resultValue.innerHTML = '<span class="result-error">寸法不足</span>';
+    resultCard.classList.add('error');
+  } else {
+    resultValue.innerHTML = cutting + '<span class="unit-label">mm</span>';
+    resultCard.classList.remove('error');
+  }
+
+  let formula;
+  if (hasTwist) {
+    formula =
+      '√(' + center + '² + ' + tw + '²) = <span>' + Math.round(baseDist) + '</span><br>' +
+      '<span>' + Math.round(baseDist) + '</span> × √2 = <span>' + develop + '</span><br>' +
+      '<span>' + develop + '</span> − <span>' + gA + '</span>(エルG) − <span>' + gB + '</span>(45エルG) = <span class="formula">' + cutting + '</span>';
+  } else {
+    formula =
+      '<span>' + center + '</span> × √2 = <span>' + develop + '</span><br>' +
+      '<span>' + develop + '</span> − <span>' + gA + '</span>(エルG) − <span>' + gB + '</span>(45エルG) = <span class="formula">' + cutting + '</span>';
+  }
+  detail.innerHTML = formula;
+
+  drawDiagramL(center, tw, cutting, gA, gB, G);
+}
+
+function drawDiagramL(center, tw, cutting, gA, gB, G) {
+  const label = document.getElementById('diagramLabel');
+  label.textContent = 'エル+45エル（直角＋斜め）';
+  const cVal = center > 0 ? center : '---';
+  const cutVal = cutting > 0 ? cutting : '---';
+  const hasTwist = tw > 0;
+
+  const html = `
+<svg viewBox="0 0 400 250" xmlns="http://www.w3.org/2000/svg">
+  <!-- 入口側パイプ（上から横） -->
+  <line x1="0" y1="40" x2="60" y2="40" class="svg-pipe"/>
+  <!-- 90°エル -->
+  <circle cx="70" cy="40" r="14" fill="#ff8c42" opacity="0.95"/>
+  <text x="70" y="44" text-anchor="middle" style="fill:#fff; font-size:10px; font-weight:700;">90°</text>
+
+  <!-- 斜めパイプ（90°エル芯 → 45°エル芯、45°下向き） -->
+  <line x1="78" y1="48" x2="312" y2="192" class="svg-pipe"/>
+
+  <!-- 45°エル -->
+  <circle cx="320" cy="200" r="14" fill="#ff8c42" opacity="0.95"/>
+  <text x="320" y="204" text-anchor="middle" style="fill:#fff; font-size:10px; font-weight:700;">45°</text>
+
+  <!-- 出口パイプ（縦） -->
+  <line x1="320" y1="214" x2="320" y2="250" class="svg-pipe"/>
+
+  <!-- 芯印線 -->
+  <line x1="70" y1="20" x2="70" y2="230" stroke="#ffdd66" stroke-width="1" stroke-dasharray="3,3"/>
+  <line x1="320" y1="20" x2="320" y2="230" stroke="#ffdd66" stroke-width="1" stroke-dasharray="3,3"/>
+
+  <!-- 芯々C寸法 -->
+  <line x1="70" y1="12" x2="320" y2="12" class="svg-dim"/>
+  <polygon points="70,12 78,8 78,16" fill="#4da6ff"/>
+  <polygon points="320,12 312,8 312,16" fill="#4da6ff"/>
+  <text x="195" y="8" text-anchor="middle" class="svg-dim-text" style="font-size:13px;">C = ${cVal} mm</text>
+
+  <!-- 捻り表示（あれば） -->
+  ${hasTwist ? `
+  <line x1="370" y1="40" x2="370" y2="200" stroke="#4ecb71" stroke-width="1.2"/>
+  <polygon points="370,40 366,48 374,48" fill="#4ecb71"/>
+  <polygon points="370,200 366,192 374,192" fill="#4ecb71"/>
+  <text x="383" y="125" text-anchor="middle" style="fill:#4ecb71; font-size:11px; font-weight:700; font-family:sans-serif;" transform="rotate(-90 383 125)">T=${tw}</text>
+  ` : ''}
+
+  <!-- G寸法表示 -->
+  <text x="90" y="75" style="fill:#ff8c42; font-size:11px; font-weight:600; font-family:sans-serif;">G=${gA}</text>
+  <text x="265" y="185" style="fill:#ff8c42; font-size:11px; font-weight:600; font-family:sans-serif;">G=${gB}</text>
+
+  <!-- 切り寸法 -->
+  <text x="200" y="245" text-anchor="middle" style="fill:#4ecb71; font-size:13px; font-weight:700; font-family:sans-serif;">切り寸法 = ${cutVal} mm</text>
+</svg>`;
+  document.getElementById('diagram').innerHTML = html;
 }
 
 // ===== 一覧表 =====
