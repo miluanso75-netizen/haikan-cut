@@ -332,9 +332,10 @@
         <thead>
           <tr>
             <th>口径</th>
-            <th>G (mm)</th>
-            <th>L 45°端面〜芯</th>
-            <th>A 90°端面〜芯</th>
+            <th>G90</th>
+            <th>G45</th>
+            <th>L<br><span style="font-size:0.7rem;">45°芯</span></th>
+            <th>A<br><span style="font-size:0.7rem;">90°芯</span></th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -353,16 +354,18 @@ const SIZE_LABELS = {
   '1-1/4':'1-1/4 (32A)', '1-1/2':'1-1/2 (40A)', '2':'2 (50A)',
   '2-1/2':'2-1/2 (65A)', '3':'3 (80A)', '4':'4 (100A)'
 };
+// G90 = 90°エルボ・チーズ・ソケット等のねじ込み代
+// G45 = 45°エルボのねじ込み代
 const DIM = {
-  '1/2':   { G:10, L:21, A:27 },
-  '3/4':   { G:12, L:25, A:33 },
-  '1':     { G:14, L:29, A:41 },
-  '1-1/4': { G:17, L:34, A:50 },
-  '1-1/2': { G:19, L:37, A:56 },
-  '2':     { G:22, L:42, A:69 },
-  '2-1/2': { G:26, L:49, A:86 },
-  '3':     { G:29, L:54, A:99 },
-  '4':     { G:37, L:65, A:127 }
+  '1/2':   { G90: 13, G45: 10, L: 21, A: 27 },
+  '3/4':   { G90: 15, G45: 12, L: 25, A: 33 },
+  '1':     { G90: 17, G45: 14, L: 29, A: 41 },
+  '1-1/4': { G90: 19, G45: 17, L: 34, A: 50 },
+  '1-1/2': { G90: 21, G45: 19, L: 37, A: 56 },
+  '2':     { G90: 24, G45: 22, L: 42, A: 69 },
+  '2-1/2': { G90: 28, G45: 26, L: 49, A: 86 },
+  '3':     { G90: 32, G45: 29, L: 54, A: 99 },
+  '4':     { G90: 40, G45: 37, L: 65, A: 127 }
 };
 
 let currentMode = 'straight';
@@ -610,14 +613,21 @@ function onSizeChange() {
   calculate();
 }
 
+// モード別に使うG寸法を返す
+//  straight (90°直)  → 両端とも G90
+//  offset45 (45°オフセ) → 両端とも G45
+//  loffset  (L+オフセ)  → 端A=G90, 端B=G45
 function getG(side) {
   const mainSize = document.getElementById('pipeSize').value;
   const isReduce = document.getElementById('reduce' + side).checked;
-  if (isReduce) {
-    const subSize = document.getElementById('subSize' + side).value;
-    return DIM[subSize] ? DIM[subSize].G : DIM[mainSize].G;
-  }
-  return DIM[mainSize].G;
+  const sizeUsed = isReduce
+    ? (document.getElementById('subSize' + side).value || mainSize)
+    : mainSize;
+  const d = DIM[sizeUsed] || DIM[mainSize];
+
+  if (currentMode === 'offset45') return d.G45;
+  if (currentMode === 'loffset')  return side === 'A' ? d.G90 : d.G45;
+  return d.G90; // straight
 }
 
 // ===== 計算 =====
@@ -714,7 +724,7 @@ function calculate() {
 // ===== L+オフセット計算（エル + 45エルの斜めパイプ1本） =====
 function calculateLOffset(size, gA, gB) {
   const d = DIM[size];
-  const G = d.G;
+  const G = d.G90; // 表示用（実計算にはgA,gBを使用）
   const center = parseFloat(document.getElementById('lCenter').value) || 0;
   const tw = parseFloat(document.getElementById('lTwist').value) || 0;
 
@@ -759,11 +769,11 @@ function calculateLOffset(size, gA, gB) {
     formula =
       '√(' + center + '² + ' + tw + '²) = <span>' + Math.round(baseDist) + '</span><br>' +
       '<span>' + Math.round(baseDist) + '</span> × √2 = <span>' + develop + '</span><br>' +
-      '<span>' + develop + '</span> − <span>' + gA + '</span>(エルG) − <span>' + gB + '</span>(45エルG) = <span class="formula">' + cutting + '</span>';
+      '<span>' + develop + '</span> − <span>' + gA + '</span>(G90) − <span>' + gB + '</span>(G45) = <span class="formula">' + cutting + '</span>';
   } else {
     formula =
       '<span>' + center + '</span> × √2 = <span>' + develop + '</span><br>' +
-      '<span>' + develop + '</span> − <span>' + gA + '</span>(エルG) − <span>' + gB + '</span>(45エルG) = <span class="formula">' + cutting + '</span>';
+      '<span>' + develop + '</span> − <span>' + gA + '</span>(G90) − <span>' + gB + '</span>(G45) = <span class="formula">' + cutting + '</span>';
   }
   detail.innerHTML = formula;
 
@@ -832,7 +842,8 @@ function buildTable() {
     tr.dataset.size = s;
     tr.innerHTML =
       '<td>' + s + '</td>' +
-      '<td><strong>' + d.G + '</strong></td>' +
+      '<td><strong>' + d.G90 + '</strong></td>' +
+      '<td><strong>' + d.G45 + '</strong></td>' +
       '<td>' + d.L + '</td>' +
       '<td>' + d.A + '</td>';
     tbody.appendChild(tr);
